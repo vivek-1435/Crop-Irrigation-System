@@ -1,9 +1,9 @@
 import pandas as pd
 import joblib
 import numpy as np
-import tensorflow as tf
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense, Dropout
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader, TensorDataset
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.metrics import r2_score
 
@@ -33,26 +33,52 @@ y = df['WATER REQUIREMENT']
 scaler = StandardScaler()
 X_scaled = scaler.fit_transform(X)
 
+# Convert to PyTorch tensors
+X_tensor = torch.tensor(X_scaled, dtype=torch.float32)
+y_tensor = torch.tensor(y.values, dtype=torch.float32).unsqueeze(1)
+
+dataset = TensorDataset(X_tensor, y_tensor)
+dataloader = DataLoader(dataset, batch_size=32, shuffle=True)
+
 # Train a deep neural network
-model = Sequential([
-    Dense(512, activation='relu', input_shape=(X_scaled.shape[1],)),
-    Dropout(0.3),
-    Dense(256, activation='relu'),
-    Dropout(0.2),
-    Dense(128, activation='relu'),
-    Dense(64, activation='relu'),
-    Dense(32, activation='relu'),
-    Dense(1)
-])
-model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.001), loss='mse', metrics=['mae'])
-model.fit(X_scaled, y, epochs=100, batch_size=32, verbose=1)
+model = nn.Sequential(
+    nn.Linear(X_scaled.shape[1], 512),
+    nn.ReLU(),
+    nn.Dropout(0.3),
+    nn.Linear(512, 256),
+    nn.ReLU(),
+    nn.Dropout(0.2),
+    nn.Linear(256, 128),
+    nn.ReLU(),
+    nn.Linear(128, 64),
+    nn.ReLU(),
+    nn.Linear(64, 32),
+    nn.ReLU(),
+    nn.Linear(32, 1)
+)
+
+criterion = nn.MSELoss()
+optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+
+for epoch in range(100):
+    model.train()
+    for X_batch, y_batch in dataloader:
+        optimizer.zero_grad()
+        loss = criterion(model(X_batch), y_batch)
+        loss.backward()
+        optimizer.step()
+    if (epoch + 1) % 10 == 0:
+        print(f"Epoch {epoch + 1}/100 - Loss: {loss.item():.4f}")
 
 # Evaluate model
-y_pred = model.predict(X_scaled).flatten()
+model.eval()
+with torch.no_grad():
+    y_pred = model(X_tensor).numpy().flatten()
+
 r2 = r2_score(y, y_pred)
 print(f"Model Accuracy (R² Score): {r2:.2f}")
 
 # Save model and encoders
-model.save("water_requirement_model.h5")
+torch.save(model.state_dict(), "water_requirement_model.pth")
 joblib.dump(encoder, "encoder.pkl")
 joblib.dump(scaler, "scaler.pkl")
