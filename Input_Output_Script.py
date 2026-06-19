@@ -2,15 +2,24 @@ import pandas as pd
 import datetime
 import joblib
 import requests
-import tensorflow as tf
-from tensorflow.keras.losses import MeanSquaredError  # Explicitly import loss function
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
+import torch
+import torch.nn as nn
 
 # Load trained model and encoders
-model = tf.keras.models.load_model("water_requirement_model.h5",
-                                   custom_objects={'mse': MeanSquaredError()})
 encoder = joblib.load("encoder.pkl")
 scaler = joblib.load("scaler.pkl")
+
+input_dim = len(encoder.get_feature_names_out())
+model = nn.Sequential(
+    nn.Linear(input_dim, 512), nn.ReLU(), nn.Dropout(0.3),
+    nn.Linear(512, 256), nn.ReLU(), nn.Dropout(0.2),
+    nn.Linear(256, 128), nn.ReLU(),
+    nn.Linear(128, 64), nn.ReLU(),
+    nn.Linear(64, 32), nn.ReLU(),
+    nn.Linear(32, 1)
+)
+model.load_state_dict(torch.load("water_requirement_model.pth", map_location=torch.device('cpu')))
+model.eval()
 
 # Display possible inputs for each category
 print("\nPossible Inputs:")
@@ -71,7 +80,7 @@ is_feasible_time(crop_type)
 
 # Fetch 5-day weather forecast
 def get_weather_forecast(city):
-    API_KEY = "Key"  # Replace with your OpenWeatherMap API key
+    API_KEY = "ec9f8944c1df4086e1a200f2416cf9cb"  # Replace with your OpenWeatherMap API key
     forecast_url = f"https://api.openweathermap.org/data/2.5/forecast?q={city},IN&appid={API_KEY}&units=metric"
     response = requests.get(forecast_url).json()
     print("\n📅 5-Day Weather Forecast:")
@@ -108,7 +117,9 @@ input_encoded_df = input_encoded_df[encoder.get_feature_names_out()]
 
 # Scale input data
 input_scaled = scaler.transform(input_encoded_df)
-predicted_water = model.predict(input_scaled).flatten()[0]
+input_tensor = torch.tensor(input_scaled, dtype=torch.float32)
+with torch.no_grad():
+    predicted_water = model(input_tensor).numpy().flatten()[0]
 
 # Final recommendation
 if irrigation_needed:
